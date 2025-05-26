@@ -115,6 +115,23 @@ def save_data(df):
 def save_test_data(df):
     df.to_csv(TEST_LOG_FILE, index=False)
 
+def add_study_entry(entry_date, domain, sub_objective, resources_used, time_spent, notes, confidence, status):
+    df = load_data()
+    timestamp = datetime.now().strftime(DATE_FORMAT)
+    new_entry = pd.DataFrame([{
+        "Timestamp": timestamp,
+        "Date": entry_date.strftime("%Y-%m-%d"),
+        "Domain": domain,
+        "Sub-Objective": sub_objective,
+        "Resources Used": ", ".join(resources_used),
+        "Time Spent (Minutes)": time_spent,
+        "Notes": notes,
+        "Confidence (1-5)": confidence,
+        "Status": status
+    }])
+    df = pd.concat([df, new_entry], ignore_index=True)
+    save_data(df)
+
 def add_test_entry(entry_date, domains, num_questions, score, duration, test_type):
     df = load_test_data()
     timestamp = datetime.now().strftime(DATE_FORMAT)
@@ -136,7 +153,60 @@ st.title("📘 CCSP Study Tracker with Milestones and Test Logging")
 
 page = st.sidebar.radio("Navigation", ["Add Study Entry", "View Progress Log", "Milestone Progress", "Log Practice Test"])
 
-if page == "Log Practice Test":
+if page == "Add Study Entry":
+    st.header("📝 Add New Study Entry")
+    with st.form("entry_form"):
+        entry_date = st.date_input("Study Date", value=datetime.today())
+        selected_domain = st.selectbox("Domain Studied", ["--Select a Domain--"] + list(CCSP_DOMAINS.keys()))
+        sub_objectives = CCSP_DOMAINS.get(selected_domain, [])
+        selected_sub = st.selectbox("Sub-Objective", sub_objectives if sub_objectives else ["General"])
+        resources = st.multiselect("Resources Used", options=SUGGESTED_RESOURCES)
+        other_resource = st.text_input("Other Resource (if any)")
+        time_spent = st.number_input("Time Spent (Minutes)", 1, 90, 60, 5)
+        notes = st.text_area("Notes / Key Takeaways")
+        confidence = st.slider("Confidence Level", 1, 5, 3)
+        status = st.selectbox("Status", ["Not Started", "In Progress", "Needs Review", "Completed"])
+
+        if st.form_submit_button("Add Entry"):
+            if selected_domain == "--Select a Domain--":
+                st.error("Please select a valid domain.")
+            else:
+                final_resources = resources.copy()
+                if other_resource:
+                    final_resources.append(other_resource.strip())
+                add_study_entry(entry_date, selected_domain, selected_sub, final_resources, time_spent, notes, confidence, status)
+                st.success("Entry added successfully!")
+
+elif page == "View Progress Log":
+    st.header("📊 Study Progress Log")
+    df = load_data()
+    if df.empty:
+        st.info("No entries yet.")
+    else:
+        st.dataframe(df.sort_values(by="Timestamp", ascending=False), use_container_width=True)
+        st.subheader("Summary")
+        st.metric("Total Study Time (Hours)", f"{df['Time Spent (Minutes)'].sum() / 60:.2f}")
+        st.metric("Average Confidence", f"{df['Confidence (1-5)'].mean():.2f} / 5")
+        st.bar_chart(df.groupby("Domain")["Time Spent (Minutes)"].sum().sort_values(ascending=False))
+
+elif page == "Milestone Progress":
+    st.header("🏁 Milestone Completion Tracker")
+    df = load_data()
+    if df.empty:
+        st.info("No progress data available yet.")
+    else:
+        completed = {}
+        for short_key, full_domain in MILESTONES.items():
+            total = len(CCSP_DOMAINS[full_domain])
+            filtered = df[(df["Domain"] == full_domain) & (df["Status"] == "Completed")]
+            done = filtered["Sub-Objective"].nunique()
+            percent = int((done / total) * 100) if total > 0 else 0
+            completed[full_domain] = percent
+        for domain_name, pct in completed.items():
+            st.markdown(f"**{domain_name}**: {pct}% complete")
+            st.progress(pct)
+
+elif page == "Log Practice Test":
     st.header("🧠 Log a LearnZapp Custom Test")
     with st.form("test_log_form"):
         test_date = st.date_input("Test Date", value=datetime.today())
@@ -162,4 +232,5 @@ if page == "Log Practice Test":
     else:
         st.dataframe(df_test.sort_values(by="Timestamp", ascending=False), use_container_width=True)
 
-# Existing pages (Add Study Entry, View Progress Log, Milestone Progress) continue unchanged below...
+st.sidebar.markdown("---")
+st.sidebar.markdown("Built to support your CCSP study journey with priority tracking and milestone logic 🚀")
